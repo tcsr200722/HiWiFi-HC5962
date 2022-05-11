@@ -15,5 +15,4 @@
 
 # Add a feed source
 #sed -i '$a src-git lienol https://github.com/Lienol/openwrt-package' feeds.conf.default
-git clone https://github.com/esirplayground/luci-app-poweroff.git
-cp -r luci-app-poweroff /home/root/openwrt/package/
+git clone https://github.com/esirplayground/luci-app-poweroff.git package/luci-app-poweroff
