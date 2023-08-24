@@ -61,7 +61,7 @@ jobs:
         echo "src-git jerryk https://github.com/jerrykuku/openwrt-package" >> ./feeds.conf.default
         echo "src-git netspeedtest  https://github.com/sirpdboy/netspeedtest" >> ./feeds.conf.default
         echo "src-git helloworld https://github.com/fw876/helloworld" >> ./feeds.conf.default
-        
+        git clone https://github.com/esirplayground/luci-app-poweroff.git package/lean/luci-app-poweroff
 
         
         
