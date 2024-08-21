@@ -1,0 +1,123 @@
+name: Build OpenWrt
+
+on:
+  schedule:
+    - cron: "0 0 * * 5"
+  workflow_dispatch:
+
+env:
+  SSH_ACTIONS: false
+  UPLOAD_FIRMWARE: true
+  UPLOAD_RELEASE: true
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+
+    permissions:
+      contents: write
+    
+    steps:
+    - name: 检查项目分支
+      uses: actions/checkout@main
+      
+    - name: 初始化编译环境
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install $(curl -fsSL git.io/depends-ubuntu-2004)
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
+        sudo timedatectl set-timezone "$TZ"
+        sudo mkdir -p /workdir
+        sudo chown $USER:$GROUPS /workdir
+        
+    - name: 清理磁盘空间(Ubuntu)
+      uses: jlumbroso/free-disk-space@main
+      with:
+        # this might remove tools that are actually needed,
+        # when set to "true" but frees about 6 GB
+        tool-cache: true
+        
+        # all of these default to true, but feel free to set to
+        # "false" if necessary for your workflow
+        android: false
+        dotnet: false
+        haskell: false
+        large-packages: false
+        swap-storage: false
+
+    - name: 下载源码和更新feed
+      run: |
+        git clone https://github.com/coolsnowwolf/lede
+        cd lede
+        echo "src-git small https://github.com/kenzok8/small" >> "feeds.conf.default"
+        echo "src-git kenzo https://github.com/kenzok8/openwrt-packages" >> "feeds.conf.default"
+        echo "src-git helloworld https://github.com/fw876/helloworld" >> "feeds.conf.default"
+        echo "src-git netspeedtest  https://github.com/sirpdboy/netspeedtest" >> "feeds.conf.default"
+        echo "src-git passwall_packages https://github.com/xiaorouji/openwrt-passwall-packages.git;main" >> "feeds.conf.default"
+        echo "src-git passwall https://github.com/xiaorouji/openwrt-passwall.git;main" >> "feeds.conf.default"
+        git clone https://github.com/esirplayground/luci-app-poweroff package/lean/luci-app-poweroff
+        
+        # 如果需要选择特定分支，可以使用以下命令
+        # git checkout <branch_name>
+
+        # 更新 feeds
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+
+    - name: 按上传的配置文件进行编译
+      env:
+        CONFIG_FILE: '.config'
+      run: |
+        [ -e $CONFIG_FILE ] && mv $CONFIG_FILE lede/.config
+        cd lede
+        make defconfig
+
+    - name: 开始编译
+      run: |
+        cd lede
+        make download -j8
+        make V=s -j1
+        
+    - name: Organize files
+      if: success() && !cancelled()
+      run: |
+          df -hT
+          cd ~/openwrt/bin/targets/*/*
+          ls -al
+
+          # sed -i '/buildinfo/d; /\.bin/d; /\.manifest/d' sha256sums
+          rm -rf packages *.buildinfo *.manifest *.bin sha256sums
+
+          filename=${{ env.CONFIG_REPO }}-${{ env.CONFIG_NAME }}-${{ env.release }}.zip
+
+          gzip *.img 2>/dev/null || true
+          zip -q -r ${filename} *
+          echo "firmware=$PWD/${filename}" >> $GITHUB_ENV
+
+    - name: Upload firmware to release
+      uses: softprops/action-gh-release@v1
+      if: success() && !cancelled()
+      env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+          tag_name: ${{ env.release }}
+          files: ${{ env.firmware }}
+
+    # - name: Delete workflow runs
+    #   uses: Mattraks/delete-workflow-runs@v2
+    #   with:
+    #     retain_days: 1
+    #     keep_minimum_runs: 9
+
+    # - name: Remove old Releases
+    #   uses: dev-drprasad/delete-older-releases@v0.1.0
+    #   with:
+    #     keep_latest: 9
+    #     delete_tags: true
+    #   env:
+    #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
